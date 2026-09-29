@@ -1,0 +1,481 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Bookmark, ExternalLink, FileText, Globe2, Search, Send, Sparkles, X } from 'lucide-react';
+import { createApplication, generateCoverLetter, matchJob, saveJob, searchJobs } from '../services/api';
+
+const filterOptions = {
+  experience: ['Any', 'Fresher', '0-1 yr', '1-3 yrs', '3-5 yrs', '5+ yrs'],
+  jobType: ['Any', 'Full-time', 'Half-time', 'Internship'],
+  workplace: ['Any', 'Remote', 'Hybrid', 'On-site'],
+  platform: ['Naukri', 'LinkedIn', 'Indeed', 'Glassdoor', 'TimesJobs', 'Shine.com', 'Foundit', 'Internshala'],
+  posted: ['Any time', 'Today', '3 days', '7 days', '15 days', '30 days'],
+};
+
+const initialFilters = {
+  experience: 'Any',
+  jobType: 'Any',
+  workplace: 'Any',
+  platform: ['Naukri'],
+  posted: 'Any time',
+};
+
+const demoPlatformByExternalId = {
+  'demo-100': 'Naukri',
+  'demo-101': 'LinkedIn',
+  'demo-102': 'Indeed',
+};
+
+const platformSearchUrl = {
+  Naukri: (query, location) => `https://www.naukri.com/${encodeURIComponent(query).replaceAll('%20', '-')}-jobs-in-${encodeURIComponent(location).replaceAll('%20', '-')}`,
+  LinkedIn: (query, location) => `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(query)}&location=${encodeURIComponent(location)}`,
+  Indeed: (query, location) => `https://www.indeed.com/jobs?q=${encodeURIComponent(query)}&l=${encodeURIComponent(location)}`,
+  Glassdoor: (query, location) => `https://www.glassdoor.co.in/Job/jobs.htm?sc.keyword=${encodeURIComponent(query)}&locT=C&locId=&locKeyword=${encodeURIComponent(location)}`,
+  TimesJobs: (query, location) => `https://www.timesjobs.com/candidate/job-search.html?searchType=personalizedSearch&txtKeywords=${encodeURIComponent(query)}&txtLocation=${encodeURIComponent(location)}`,
+  'Shine.com': (query, location) => `https://www.shine.com/job-search/${encodeURIComponent(query).replaceAll('%20', '-')}-jobs-in-${encodeURIComponent(location).replaceAll('%20', '-')}`,
+  Foundit: (query, location) => `https://www.foundit.in/srp/results?query=${encodeURIComponent(query)}&locations=${encodeURIComponent(location)}`,
+  Internshala: (query, location) => `https://internshala.com/jobs/keywords-${encodeURIComponent(query).replaceAll('%20', '-')}/location-${encodeURIComponent(location).replaceAll('%20', '-')}/`,
+};
+
+function FilterChip({ label, active, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1.5 text-xs font-black transition ${
+        active
+          ? 'border-fuchsia-500/60 bg-fuchsia-500/15 text-fuchsia-200 shadow-[0_0_18px_rgba(217,70,239,0.16)]'
+          : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function parseExperienceRange(experience = '') {
+  const text = String(experience).toLowerCase();
+  if (text.includes('fresher') || text.includes('entry')) {
+    return { min: 0, max: 0 };
+  }
+  const range = text.match(/(\d+)\s*[-to]+\s*(\d+)/);
+  if (range) {
+    return { min: Number(range[1]), max: Number(range[2]) };
+  }
+  const single = text.match(/(\d+)\+?/);
+  if (single) {
+    const value = Number(single[1]);
+    return { min: value, max: text.includes('+') ? 99 : value };
+  }
+  return { min: 0, max: 99 };
+}
+
+function matchesExperience(job, selected) {
+  if (selected === 'Any') return true;
+  const { min, max } = parseExperienceRange(job.experience_required);
+  if (selected === 'Fresher') return min === 0 && max <= 1;
+  if (selected === '0-1 yr') return min <= 1 && max <= 1;
+  if (selected === '1-3 yrs') return min <= 3 && max >= 1;
+  if (selected === '3-5 yrs') return min <= 5 && max >= 3;
+  if (selected === '5+ yrs') return max >= 5 || min >= 5;
+  return true;
+}
+
+function matchesJobType(job, selected) {
+  if (selected === 'Any') return true;
+  const type = String(job.employment_type || '').toLowerCase();
+  const normalized = selected.toLowerCase();
+  if (normalized === 'half-time') return type.includes('part') || type.includes('half');
+  if (normalized === 'internship') return type.includes('intern');
+  return type.includes(normalized);
+}
+
+function matchesWorkplace(job, selected) {
+  if (selected === 'Any') return true;
+  const haystack = `${job.location || ''} ${job.employment_type || ''} ${job.description || ''}`.toLowerCase();
+  if (selected === 'Remote') return haystack.includes('remote');
+  if (selected === 'Hybrid') return haystack.includes('hybrid');
+  if (selected === 'On-site') return !haystack.includes('remote') && !haystack.includes('hybrid');
+  return true;
+}
+
+function matchesPlatform(job, selectedPlatforms) {
+  if (!selectedPlatforms.length) return false;
+  const platform = jobPlatform(job).toLowerCase().replace('.com', '');
+  return selectedPlatforms.some((selected) => platform.includes(selected.toLowerCase().replace('.com', '')));
+}
+
+function jobPlatform(job) {
+  if (job.source === 'DEMO') {
+    return demoPlatformByExternalId[job.external_id] || 'Naukri';
+  }
+  return job.source || 'Unknown';
+}
+
+function jobMatchesFilters(job, filters) {
+  return (
+    matchesExperience(job, filters.experience)
+    && matchesJobType(job, filters.jobType)
+    && matchesWorkplace(job, filters.workplace)
+    && matchesPlatform(job, filters.platform)
+  );
+}
+
+function JobModal({ job, onClose, onMatch, onCoverLetter, onSave, onApplyDraft }) {
+  if (!job) return null;
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <button type="button" onClick={() => onMatch(job)} className="min-w-0 text-left">
+            <h2 className="text-2xl font-black text-white hover:text-fuchsia-200">{job.title}</h2>
+            <p className="mt-1 text-sm font-semibold text-slate-400">{job.company} - {jobPlatform(job)} - {job.location}</p>
+          </button>
+          <button type="button" onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <button type="button" onClick={() => onMatch(job)} className="text-5xl font-black text-blue-300 hover:text-blue-200">
+            {job.match_score ?? 0}%
+          </button>
+          <span className="rounded-lg bg-blue-500/15 px-3 py-2 text-sm font-black text-blue-200">Overall match</span>
+          {job.url && (
+            <a href={job.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-800">
+              <ExternalLink size={15} />
+              View Job
+            </a>
+          )}
+        </div>
+
+        <button type="button" onClick={() => onMatch(job)} className="mt-4 w-full rounded-2xl bg-slate-950 p-4 text-left text-sm leading-6 text-slate-300 hover:bg-slate-950/70">
+          {job.explanation || 'Click Skill Fit to run explainable matching for this role.'}
+        </button>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <div>
+            <p className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-amber-300">Matched / Partial</p>
+            <div className="flex flex-wrap gap-2">
+              {[...(job.matched_skills || []), ...(job.partial_skills || [])].length === 0 ? (
+                <button type="button" onClick={() => onMatch(job)} className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-black text-slate-300">Run Skill Fit</button>
+              ) : [...(job.matched_skills || []), ...(job.partial_skills || [])].map((skill) => (
+                <button key={skill} type="button" className="rounded-lg bg-amber-500/15 px-3 py-1.5 text-xs font-black text-amber-200">{skill}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-rose-300">Missing</p>
+            <div className="flex flex-wrap gap-2">
+              {(job.missing_skills || []).length === 0 ? (
+                <span className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-black text-slate-400">No gaps loaded</span>
+              ) : (job.missing_skills || []).map((skill) => (
+                <button key={skill} type="button" className="rounded-lg bg-rose-500/15 px-3 py-1.5 text-xs font-black text-rose-200">{skill}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-2 border-t border-slate-800 pt-5">
+          <button type="button" onClick={() => onMatch(job)} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white hover:bg-blue-500">
+            <Sparkles size={16} /> Skill Fit
+          </button>
+          <button type="button" onClick={() => onCoverLetter(job.id)} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-800">
+            <FileText size={16} /> Cover Letter
+          </button>
+          <button type="button" onClick={() => onSave(job.id)} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-800">
+            <Bookmark size={16} /> {job.saved ? 'Saved' : 'Save'}
+          </button>
+          <button type="button" onClick={() => onApplyDraft(job)} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 px-3 py-2 text-sm font-black text-white">
+            <Send size={16} /> {job.application_status || 'Apply Draft'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function JobsPage({ token }) {
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('Developer');
+  const [location, setLocation] = useState('Pune');
+  const [filters, setFilters] = useState(initialFilters);
+  const [activeLetter, setActiveLetter] = useState('');
+  const [activeJob, setActiveJob] = useState(null);
+  const [notice, setNotice] = useState('');
+  const [activityLog, setActivityLog] = useState([
+    'Bot ready',
+    'Select a platform to show matching jobs',
+    'Manual review required before applying',
+  ]);
+
+  const filteredJobs = useMemo(
+    () => jobs.filter((job) => jobMatchesFilters(job, filters)),
+    [jobs, filters],
+  );
+
+  const showNotice = (message) => {
+    setNotice(message);
+    setActivityLog((current) => [`${new Date().toLocaleTimeString()} ${message}`, ...current].slice(0, 8));
+    window.clearTimeout(window.__jobbotNoticeTimer);
+    window.__jobbotNoticeTimer = window.setTimeout(() => setNotice(''), 2600);
+  };
+
+  const runSearch = async () => {
+    if (!token) return;
+    setLoading(true);
+    setError('');
+    showNotice('Scraping started');
+    try {
+      const result = await searchJobs({ query, location, token });
+      setJobs(result.data.jobs || []);
+      showNotice(`Found ${result.data.jobs?.length || 0} jobs`);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    runSearch();
+  }, [token]);
+
+  const setSingleFilter = (key, value) => {
+    setFilters((current) => ({ ...current, [key]: value }));
+    showNotice(`Showing jobs matching ${value}`);
+  };
+
+  const handlePlatformClick = (platform) => {
+    setFilters((current) => ({ ...current, platform: [platform] }));
+    showNotice(`Showing ${platform} jobs`);
+  };
+
+  const updateJob = (jobId, patch) => {
+    setJobs((current) => current.map((job) => (job.id === jobId ? { ...job, ...patch } : job)));
+    setActiveJob((current) => (current?.id === jobId ? { ...current, ...patch } : current));
+  };
+
+  const handleMatch = async (job) => {
+    showNotice('Running skill fit analysis');
+    const result = await matchJob({ jobId: job.id, token });
+    updateJob(job.id, result.data);
+    setActiveJob({ ...job, ...result.data });
+    showNotice(`Skill fit: ${result.data.match_score}%`);
+  };
+
+  const handleSave = async (jobId) => {
+    await saveJob({ jobId, token });
+    updateJob(jobId, { saved: true });
+    showNotice('Job saved');
+  };
+
+  const handleCoverLetter = async (jobId) => {
+    showNotice('Generating cover letter');
+    const result = await generateCoverLetter({ jobId, token });
+    setActiveLetter(result.data.content);
+    showNotice('Cover letter ready');
+  };
+
+  const handleApplyDraft = async (jobOrId) => {
+    const job = typeof jobOrId === 'object' ? jobOrId : jobs.find((item) => item.id === jobOrId);
+    const jobId = typeof jobOrId === 'object' ? jobOrId.id : jobOrId;
+    const result = await createApplication({ jobId, token });
+    updateJob(jobId, { application_status: result.data.application.status });
+    showNotice('Application draft created');
+    if (job) {
+      openApplyReview(job);
+    }
+  };
+
+  const stopSearch = () => {
+    setLoading(false);
+    showNotice('Search stopped');
+  };
+
+  const openLiveSearch = (platform) => {
+    const buildUrl = platformSearchUrl[platform];
+    if (!buildUrl) {
+      showNotice(`${platform} search URL is not configured`);
+      return;
+    }
+    const url = buildUrl(query || 'developer', location || 'India');
+    window.open(url, '_blank', 'noopener,noreferrer');
+    showNotice(`Opening ${platform} live search`);
+  };
+
+  const openAllPlatforms = () => {
+    filterOptions.platform.forEach((platform) => {
+      const buildUrl = platformSearchUrl[platform];
+      if (buildUrl) {
+        window.open(buildUrl(query || 'developer', location || 'India'), '_blank', 'noopener,noreferrer');
+      }
+    });
+    setFilters((current) => ({ ...current, platform: [...filterOptions.platform] }));
+    showNotice('Opening all 8 live platforms');
+  };
+
+  const openApplyReview = (job) => {
+    const platform = filters.platform[0] || 'LinkedIn';
+    const url = job.url && !job.url.includes('example.com')
+      ? job.url
+      : platformSearchUrl[platform](job.title || query, job.location || location || 'India');
+    window.open(url, '_blank', 'noopener,noreferrer');
+    showNotice(`Opening ${platform} for manual apply review`);
+  };
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[340px_1fr]">
+      <aside className="rounded-3xl border border-slate-800 bg-slate-950/70 p-5">
+        <button type="button" onClick={runSearch} className="text-left text-xl font-black text-white hover:text-fuchsia-200">Search Settings</button>
+        <div className="mt-5 space-y-5">
+          <label className="block">
+            <span className="text-sm font-bold text-slate-400">Job Role / Title</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch()} className="mt-2 w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm font-semibold text-white outline-none focus:border-fuchsia-500" />
+          </label>
+          <label className="block">
+            <span className="text-sm font-bold text-slate-400">Location</span>
+            <input value={location} onChange={(event) => setLocation(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch()} className="mt-2 w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm font-semibold text-white outline-none focus:border-fuchsia-500" />
+          </label>
+
+          {Object.entries(filterOptions).map(([key, values]) => (
+            <div key={key}>
+              <p className="mb-2 text-sm font-bold capitalize text-slate-400">
+                {key === 'posted' ? 'Posted Within' : key === 'platform' ? 'Platforms - click to filter jobs' : key}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {values.map((item) => (
+                  <FilterChip
+                    key={item}
+                    label={item}
+                    active={key === 'platform' ? filters.platform.includes(item) : filters[key] === item}
+                    onClick={() => (key === 'platform' ? handlePlatformClick(item) : setSingleFilter(key, item))}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <label className="block">
+            <span className="text-sm font-bold text-slate-400">Max jobs to scrape</span>
+            <button type="button" onClick={() => showNotice('Max jobs set to 30')} className="mt-2 w-28 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-left text-sm font-semibold text-white outline-none hover:border-fuchsia-500">30</button>
+          </label>
+
+          <button type="button" onClick={runSearch} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-fuchsia-600 to-pink-500 px-4 py-3 text-sm font-black text-white shadow-[0_0_30px_rgba(236,72,153,0.26)] disabled:opacity-60">
+            <Search size={17} />
+            {loading ? 'Searching...' : 'Start Scraping'}
+          </button>
+          <button type="button" onClick={openAllPlatforms} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm font-black text-blue-200 hover:bg-blue-500/15">
+            Open All 8 Platforms
+          </button>
+
+          <div className="rounded-2xl border border-slate-800 bg-[#070b15] p-3">
+            <div className="mb-3 flex items-center gap-2 text-sm font-black text-white">
+              <Globe2 size={16} />
+              Browser Activity
+            </div>
+            <div className="space-y-2 font-mono text-[11px]">
+              {activityLog.map((line, index) => (
+                <button key={`${line}-${index}`} type="button" onClick={() => showNotice(line)} className="block w-full rounded-lg bg-slate-950 px-2 py-2 text-left text-blue-300 hover:bg-slate-900">
+                  {line}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section className="min-w-0 space-y-5">
+        <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-950/70 p-5 md:flex-row md:items-center md:justify-between">
+          <button type="button" onClick={runSearch} className="text-left">
+            <h1 className="text-2xl font-black text-white hover:text-fuchsia-200">Search Jobs</h1>
+            <p className="text-sm text-slate-400">Scrape permitted sources and score listings against your resume.</p>
+          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="button" onClick={() => showNotice(`${filteredJobs.length} recommended from ${jobs.length} found`)} className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-sm font-bold text-emerald-300 hover:bg-emerald-500/15">Recommended {filteredJobs.length}/{jobs.length}</button>
+            <button type="button" onClick={stopSearch} className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-2 text-sm font-bold text-rose-300 hover:bg-rose-500/15">Stop</button>
+          </div>
+        </div>
+
+        {notice && <button type="button" onClick={() => setNotice('')} className="w-full rounded-2xl border border-fuchsia-500/30 bg-fuchsia-500/10 p-3 text-left text-sm font-bold text-fuchsia-100">{notice}</button>}
+        {error && <button type="button" onClick={() => setError('')} className="w-full rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-left text-sm text-rose-200">{error}</button>}
+
+        <div className="space-y-4">
+          {jobs.length === 0 ? (
+            <button type="button" onClick={runSearch} className="w-full rounded-3xl border border-slate-800 bg-slate-950/70 p-10 text-center text-slate-500 hover:border-fuchsia-500/40">No jobs found yet. Click to search.</button>
+          ) : filteredJobs.length === 0 ? (
+            <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-10 text-center">
+              <p className="text-lg font-black text-white">No recommended jobs for selected filters</p>
+              <p className="mt-2 text-sm text-slate-500">Example: Fresher/0-1 yr will hide 2-4 yr and 3-5 yr jobs. Change filters to see matching jobs.</p>
+            </div>
+          ) : filteredJobs.map((job) => (
+            <article key={`${job.source}-${job.external_id || job.id}`} className="rounded-3xl border border-slate-800 bg-slate-950/70 p-5 transition hover:border-fuchsia-500/40 hover:bg-slate-950">
+              <button type="button" onClick={() => setActiveJob(job)} className="w-full text-left">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-xl font-black text-white hover:text-fuchsia-200">{job.title}</h2>
+                      <span className="rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] font-black text-emerald-300">LIVE</span>
+                    </div>
+                    <p className="mt-1 text-sm font-semibold text-slate-400">{job.company} - {job.location || 'Remote'} - {jobPlatform(job)}</p>
+                    <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">{job.description}</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {[job.employment_type, job.experience_required, job.salary].filter(Boolean).map((item) => (
+                        <span key={item} className="rounded-full bg-slate-900 px-3 py-1 text-xs font-bold text-slate-300">{item}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-left lg:text-right">
+                    <p className="text-2xl font-black text-fuchsia-300">{job.match_score ?? 0}%</p>
+                    <p className="text-xs font-bold text-slate-500">match</p>
+                  </div>
+                </div>
+              </button>
+
+              <div className="mt-5 flex flex-wrap gap-2">
+                <button type="button" onClick={() => handleMatch(job)} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white hover:bg-blue-500">
+                  <Sparkles size={16} /> Skill Fit
+                </button>
+                <button type="button" onClick={() => handleCoverLetter(job.id)} className="inline-flex items-center gap-2 rounded-xl border border-slate-800 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-900">
+                  <FileText size={16} /> Cover Letter
+                </button>
+                <button type="button" onClick={() => handleSave(job.id)} className="inline-flex items-center gap-2 rounded-xl border border-slate-800 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-900">
+                  <Bookmark size={16} /> {job.saved ? 'Saved' : 'Save'}
+                </button>
+                <button type="button" onClick={() => handleApplyDraft(job)} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 px-3 py-2 text-sm font-black text-white">
+                  <Send size={16} /> {job.application_status || 'Apply Draft'}
+                </button>
+                {job.url && (
+                  <a href={job.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-slate-800 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-900">
+                    <ExternalLink size={16} /> View Job
+                  </a>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+
+        {activeLetter && (
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/90 p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <button type="button" onClick={() => showNotice('Cover letter draft is ready')} className="text-left text-lg font-black text-white hover:text-fuchsia-200">Cover Letter Draft</button>
+              <button type="button" onClick={() => setActiveLetter('')} className="text-sm font-bold text-slate-400 hover:text-white">Close</button>
+            </div>
+            <button type="button" onClick={() => navigator.clipboard?.writeText(activeLetter).then(() => showNotice('Cover letter copied'))} className="mb-3 rounded-xl border border-slate-800 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-900">Copy Draft</button>
+            <pre className="whitespace-pre-wrap rounded-2xl bg-slate-900 p-4 text-left text-sm leading-6 text-slate-300">{activeLetter}</pre>
+          </div>
+        )}
+      </section>
+
+      <JobModal
+        job={activeJob}
+        onClose={() => setActiveJob(null)}
+        onMatch={handleMatch}
+        onCoverLetter={handleCoverLetter}
+        onSave={handleSave}
+        onApplyDraft={handleApplyDraft}
+      />
+    </div>
+  );
+}

@@ -1,0 +1,127 @@
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001';
+
+async function apiRequest(path, { method = 'GET', token, body, isFormData = false } = {}) {
+  const headers = {};
+
+  if (!isFormData) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers,
+    body: body && !isFormData ? JSON.stringify(body) : body,
+  });
+
+  const contentType = response.headers.get('content-type') || '';
+  const payload = contentType.includes('application/json') ? await response.json() : await response.text();
+
+  if (!response.ok) {
+    const detail = typeof payload === 'object' && payload ? payload.detail || payload.message : payload;
+    throw new Error(typeof detail === 'string' ? detail : 'Request failed');
+  }
+
+  return payload;
+}
+
+export function loginUser({ email, password }) {
+  return apiRequest('/api/auth/login', {
+    method: 'POST',
+    body: { email, password },
+  });
+}
+
+export function registerUser({ name, email, password, phone, location }) {
+  return apiRequest('/api/auth/register', {
+    method: 'POST',
+    body: { name, email, password, phone, location },
+  });
+}
+
+export function searchJobs({ query, location, token }) {
+  const params = new URLSearchParams({ query });
+  if (location) params.set('location', location);
+  return apiRequest(`/api/jobs/search?${params.toString()}`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function listResumes(token) {
+  return apiRequest('/api/resumes', { token });
+}
+
+export function uploadResume({ file, token }) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return fetch(`${API_BASE_URL}/api/resumes/upload`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  }).then(async (response) => {
+    const contentType = response.headers.get('content-type') || '';
+    const payload = contentType.includes('application/json') ? await response.json() : await response.text();
+
+    if (!response.ok) {
+      const detail = typeof payload === 'object' && payload ? payload.detail || payload.message : payload;
+      throw new Error(typeof detail === 'string' ? detail : 'Resume upload failed');
+    }
+
+    return payload;
+  });
+}
+
+export function analyzeResume({ resumeId, token }) {
+  return apiRequest(`/api/ats/analyze/${resumeId}`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function getAnalytics(token) {
+  return apiRequest('/api/analytics', { token });
+}
+
+export function analyzeJobDescription({ jobDescription, token }) {
+  return apiRequest('/api/jobs/analyze-description', {
+    method: 'POST',
+    token,
+    body: { job_description: jobDescription },
+  });
+}
+
+export function matchJob({ jobId, token }) {
+  return apiRequest(`/api/jobs/${jobId}/match`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function generateCoverLetter({ jobId, token }) {
+  return apiRequest(`/api/jobs/${jobId}/cover-letter`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function saveJob({ jobId, token }) {
+  return apiRequest(`/api/jobs/${jobId}/save`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function createApplication({ jobId, token }) {
+  return apiRequest('/api/applications', {
+    method: 'POST',
+    token,
+    body: { job_id: jobId },
+  });
+}
