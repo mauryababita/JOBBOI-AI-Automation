@@ -1,29 +1,40 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BriefcaseBusiness, FileUp, GraduationCap, ShieldCheck, Sparkles } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, BriefcaseBusiness, FileUp, GraduationCap, Lightbulb, ShieldCheck, Sparkles } from 'lucide-react';
 import { analyzeResume, listResumes, uploadResume } from '../services/api';
 
-function ScoreRing({ score }) {
+function ScoreRing({ score, empty = false }) {
   const value = Number(score || 0);
+  const label = empty ? 'No resume' : value >= 75 ? 'Strong' : value >= 50 ? 'Improve' : 'Low';
   return (
     <div className="flex h-44 w-44 items-center justify-center rounded-full border-[14px] border-blue-500 bg-slate-950 shadow-[0_0_35px_rgba(59,130,246,0.25)]">
       <div className="text-center">
         <p className="text-5xl font-black text-white">{value}</p>
-        <p className="text-sm font-semibold text-slate-500">Good</p>
+        <p className="text-sm font-semibold text-slate-500">{label}</p>
       </div>
     </div>
   );
 }
 
-function CategoryBar({ label, score, max }) {
+function CategoryBar({ label, score, max, status, feedback }) {
   const pct = Math.min(100, Math.round((score / Math.max(1, max)) * 100));
   const color = pct >= 75 ? 'bg-emerald-400' : pct >= 45 ? 'bg-blue-500' : 'bg-rose-500';
+  const statusColor = pct >= 75 ? 'text-emerald-300' : pct >= 45 ? 'text-blue-300' : 'text-rose-300';
   return (
-    <div className="grid grid-cols-[150px_1fr_52px] items-center gap-3 text-sm">
-      <span className="truncate font-semibold text-slate-300">{label}</span>
-      <div className="h-2 rounded-full bg-slate-800">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-[150px_1fr_52px] items-center gap-3 text-sm">
+        <span className="truncate font-semibold text-slate-300">{label}</span>
+        <div className="h-2 rounded-full bg-slate-800">
+          <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+        </div>
+        <span className="text-right text-xs font-bold text-slate-400">{score}/{max}</span>
       </div>
-      <span className="text-right text-xs font-bold text-slate-400">{score}/{max}</span>
+      {(status || feedback) && (
+        <p className="pl-[162px] text-xs leading-5 text-slate-500">
+          {status && <span className={`font-bold ${statusColor}`}>{status}: </span>}
+          {feedback}
+        </p>
+      )}
     </div>
   );
 }
@@ -37,6 +48,7 @@ export default function ResumePage({ token }) {
   const [atsResults, setAtsResults] = useState({});
 
   const activeResume = resumes.find((resume) => resume.id === selectedResumeId) || resumes[0];
+  const hasResume = Boolean(activeResume);
   const parsed = activeResume?.parsed_data || {};
   const skills = useMemo(() => [
     ...(parsed.technical_skills || []),
@@ -82,21 +94,11 @@ export default function ResumePage({ token }) {
     }
   };
 
-  const handleSelectResume = async (resumeId) => {
-    setSelectedResumeId(resumeId);
-    if (!atsResults[resumeId]) {
-      try {
-        const analysis = await analyzeResume({ resumeId, token });
-        setAtsResults((current) => ({ ...current, [resumeId]: analysis.data }));
-      } catch (requestError) {
-        setError(requestError.message);
-      }
-    }
-  };
-
   const atsResult = activeResume ? atsResults[activeResume.id] : null;
   const score = atsResult?.score ?? activeResume?.ats_score ?? 0;
   const categories = atsResult?.categories || {};
+  const issues = atsResult?.issues || [];
+  const improvements = atsResult?.improvements || [];
 
   const renderList = (title, items, icon) => {
     const Icon = icon;
@@ -143,28 +145,12 @@ export default function ResumePage({ token }) {
           </label>
           {selectedFile && <p className="mt-4 rounded-xl bg-slate-900 p-3 text-sm text-slate-300">Selected: {selectedFile}</p>}
           {error && <p className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">{error}</p>}
-          <div className="mt-6">
-            <p className="mb-3 text-xs font-black uppercase tracking-[0.18em] text-slate-500">Uploaded Resumes</p>
-            <div className="space-y-2">
-              {resumes.length === 0 ? (
-                <p className="text-sm text-slate-500">No resumes uploaded yet.</p>
-              ) : resumes.map((resume) => (
-                <button
-                  key={resume.id}
-                  type="button"
-                  onClick={() => handleSelectResume(resume.id)}
-                  className={`w-full rounded-2xl border p-3 text-left transition ${
-                    activeResume?.id === resume.id
-                      ? 'border-fuchsia-500/60 bg-fuchsia-500/15 text-fuchsia-100'
-                      : 'border-slate-800 bg-slate-900/70 text-slate-300 hover:border-slate-700'
-                  }`}
-                >
-                  <p className="truncate text-sm font-black">{resume.file_name}</p>
-                  <p className="mt-1 text-xs text-slate-500">ATS {resume.ats_score ?? 0}/100</p>
-                </button>
-              ))}
-            </div>
-          </div>
+          <Link
+            to="/resume-library"
+            className="mt-6 flex w-full items-center justify-center rounded-2xl border border-slate-800 px-4 py-3 text-sm font-black text-slate-200 transition hover:bg-slate-900"
+          >
+            Manage Uploaded Resumes
+          </Link>
         </section>
 
         <section className="rounded-3xl border border-slate-800 bg-slate-950/70 p-5">
@@ -173,16 +159,24 @@ export default function ResumePage({ token }) {
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Candidate Profile</p>
               <h2 className="mt-2 text-3xl font-black text-white">{parsed.name || 'Upload a resume to build your profile'}</h2>
               <p className="mt-2 text-sm text-slate-400">{activeResume?.file_name || 'Contact info, skills, education, projects, and experience will appear here.'}</p>
-              <div className="mt-4 grid gap-2 text-sm text-slate-400 md:grid-cols-2">
-                <p><span className="font-bold text-slate-200">Email:</span> {parsed.email || 'Not found'}</p>
-                <p><span className="font-bold text-slate-200">Phone:</span> {parsed.phone || 'Not found'}</p>
-                <p><span className="font-bold text-slate-200">Location:</span> {parsed.location || 'Not found'}</p>
-                <p><span className="font-bold text-slate-200">Summary:</span> {parsed.summary || 'Not found'}</p>
-              </div>
+              {hasResume ? (
+                <div className="mt-4 grid gap-2 text-sm text-slate-400 md:grid-cols-2">
+                  <p><span className="font-bold text-slate-200">Email:</span> {parsed.email || 'Not found'}</p>
+                  <p><span className="font-bold text-slate-200">Phone:</span> {parsed.phone || 'Not found'}</p>
+                  <p><span className="font-bold text-slate-200">Location:</span> {parsed.location || 'Not found'}</p>
+                  <p><span className="font-bold text-slate-200">Summary:</span> {parsed.summary || 'Not found'}</p>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-500">
+                  Profile details will appear after upload.
+                </div>
+              )}
               <div className="mt-5 flex flex-wrap gap-2">
-                {skills.length === 0 ? ['ai', 'computer vision', 'jupyter', 'power bi', 'data science'].map((skill) => (
-                  <span key={skill} className="rounded-xl bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-300">{skill}</span>
-                )) : skills.map((skill) => (
+                {!hasResume ? (
+                  <span className="rounded-xl bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-500">Upload a resume to detect skills</span>
+                ) : skills.length === 0 ? (
+                  <span className="rounded-xl bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-500">No skills detected</span>
+                ) : skills.map((skill) => (
                   <span key={skill} className="rounded-xl bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-300">{skill}</span>
                 ))}
               </div>
@@ -204,29 +198,70 @@ export default function ResumePage({ token }) {
         </div>
         <div className="grid gap-8 lg:grid-cols-[260px_1fr]">
           <div className="flex justify-center">
-            <ScoreRing score={score} />
+            <ScoreRing score={score} empty={!hasResume} />
           </div>
           <div className="space-y-4">
-            {Object.keys(categories).length === 0 ? (
-              [
-                ['Contact Info', 8, 10],
-                ['Section Headers', 9, 10],
-                ['Skill Keywords', 13, 25],
-                ['Action Verbs', 8, 10],
-                ['Quantified Impact', 6, 15],
-                ['Formatting', 9, 10],
-                ['Length', 5, 5],
-              ].map(([label, itemScore, max]) => <CategoryBar key={label} label={label} score={itemScore} max={max} />)
+            {!hasResume ? (
+              <div className="rounded-3xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-500">
+                Upload a resume to generate ATS category ratings.
+              </div>
+            ) : Object.keys(categories).length === 0 ? (
+              <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 text-sm text-slate-500">
+                ATS category ratings will appear after analysis finishes.
+              </div>
             ) : Object.entries(categories).map(([label, value]) => (
-              <CategoryBar key={label} label={label} score={value.score} max={value.max} />
+              <CategoryBar
+                key={label}
+                label={label}
+                score={value.score}
+                max={value.max}
+                status={value.status}
+                feedback={value.feedback}
+              />
             ))}
+          </div>
+        </div>
+        <div className="mt-8 grid gap-6 lg:grid-cols-2">
+          <div>
+            <div className="mb-3 flex items-center gap-2">
+              <AlertTriangle className="text-rose-300" size={18} />
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-rose-300">Issues Found</p>
+            </div>
+            <div className="space-y-3 text-sm text-slate-300">
+              {!hasResume ? (
+                <p className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">No resume uploaded yet.</p>
+              ) : issues.length === 0 ? (
+                <p className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">Run ATS analysis to see exact missing points.</p>
+              ) : issues.map((item) => (
+                <p key={item} className="rounded-2xl border border-rose-500/20 bg-rose-500/10 p-3 text-rose-100">{item}</p>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="mb-3 flex items-center gap-2">
+              <Lightbulb className="text-amber-300" size={18} />
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-300">Improvement Plan</p>
+            </div>
+            <div className="space-y-3 text-sm text-slate-300">
+              {!hasResume ? (
+                <p className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">Upload a resume to get prioritized improvement steps.</p>
+              ) : improvements.length === 0 ? (
+                <p className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">Upload or select a resume to get prioritized improvement steps.</p>
+              ) : improvements.map((item, index) => (
+                <div key={`${item.category}-${index}`} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">{item.category}</p>
+                  <p className="mt-1 font-bold text-white">{item.issue}</p>
+                  <p className="mt-1 text-slate-400">{item.action}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
         <div className="mt-8 grid gap-6 lg:grid-cols-2">
           <div>
             <p className="mb-3 text-xs font-black uppercase tracking-[0.18em] text-emerald-300">Strengths</p>
             <div className="space-y-3 text-sm text-slate-300">
-              {(atsResult?.strengths?.length ? atsResult.strengths : ['Core profile sections are ready once resume is uploaded.', 'Skills can be matched against job descriptions.']).map((item) => (
+              {(!hasResume ? ['No resume uploaded yet.'] : atsResult?.strengths?.length ? atsResult.strengths : ['Strengths will appear after resume analysis.']).map((item) => (
                 <p key={item} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">{item}</p>
               ))}
             </div>
@@ -234,7 +269,7 @@ export default function ResumePage({ token }) {
           <div>
             <p className="mb-3 text-xs font-black uppercase tracking-[0.18em] text-amber-300">Recommendations</p>
             <div className="space-y-3 text-sm text-slate-300">
-              {(atsResult?.recommendations?.length ? atsResult.recommendations : ['Add measurable outcomes with numbers, percentages, users, revenue, or scale.', 'Use text-based PDF content for best parsing reliability.']).map((item) => (
+              {(!hasResume ? ['Upload a resume to see recommendations.'] : atsResult?.recommendations?.length ? atsResult.recommendations : ['Recommendations will appear after resume analysis.']).map((item) => (
                 <p key={item} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">{item}</p>
               ))}
             </div>
@@ -243,11 +278,11 @@ export default function ResumePage({ token }) {
       </section>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        {renderList('Experience', parsed.experience || [], BriefcaseBusiness)}
-        {renderList('Education', parsed.education || [], GraduationCap)}
-        {renderList('Projects', parsed.projects || [], Sparkles)}
-        {renderList('Certifications', parsed.certifications || [], ShieldCheck)}
-        {renderList('Achievements', parsed.achievements || [], Sparkles)}
+        {hasResume && renderList('Experience', parsed.experience || [], BriefcaseBusiness)}
+        {hasResume && renderList('Education', parsed.education || [], GraduationCap)}
+        {hasResume && renderList('Projects', parsed.projects || [], Sparkles)}
+        {hasResume && renderList('Certifications', parsed.certifications || [], ShieldCheck)}
+        {hasResume && renderList('Achievements', parsed.achievements || [], Sparkles)}
       </div>
     </div>
   );

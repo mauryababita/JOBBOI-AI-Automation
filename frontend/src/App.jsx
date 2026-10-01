@@ -8,6 +8,7 @@ import {
   Briefcase,
   FileCheck2,
   FileText,
+  Files,
   LayoutDashboard,
   LogOut,
   Rocket,
@@ -20,6 +21,7 @@ import {
 import AuthPage from './pages/AuthPage';
 import DashboardPage from './pages/DashboardPage';
 import ResumePage from './pages/ResumePage';
+import ResumeLibraryPage from './pages/ResumeLibraryPage';
 import JobsPage from './pages/JobsPage';
 import SkillGapPage from './pages/SkillGapPage';
 import AutoApplyPage from './pages/AutoApplyPage';
@@ -31,6 +33,7 @@ const workflowItems = [
 ];
 
 const resultItems = [
+  { label: 'Resume Library', icon: Files, to: '/resume-library' },
   { label: 'Saved Jobs', icon: Bookmark, to: '/saved-jobs' },
   { label: 'Applications', icon: Briefcase, to: '/applications' },
   { label: 'Dashboard', icon: LayoutDashboard, to: '/' },
@@ -97,17 +100,9 @@ function Sidebar({ user, onLogout }) {
 
       <div className="border-t border-slate-800/80 p-4">
         <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950/70 p-3 text-xs">
-          <div className="flex items-center gap-2 text-emerald-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
-            <span>Naukri: {user?.email || 'demo@jobbot.ai'}</span>
-          </div>
-          <div className="flex items-center gap-2 text-emerald-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
-            <span>LinkedIn: {user?.email || 'demo@jobbot.ai'}</span>
-          </div>
           <div className="flex items-center gap-2 text-amber-300">
             <span className="h-2 w-2 rounded-full bg-amber-400" />
-            <span>Bot ready</span>
+            <span>No platform connected</span>
           </div>
         </div>
         <button
@@ -129,7 +124,7 @@ function TopBar({ user }) {
         <div className="flex flex-wrap items-center gap-3">
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-sm font-semibold text-emerald-300">
             <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
-            Live Scraping
+            Ready
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-1.5 text-sm font-semibold text-fuchsia-200">
             <ShieldCheck size={15} />
@@ -169,6 +164,7 @@ function AppLayout({ user, token, onLogout }) {
           <Routes>
             <Route path="/" element={<DashboardPage token={token} />} />
             <Route path="/resume" element={<ResumePage token={token} />} />
+            <Route path="/resume-library" element={<ResumeLibraryPage token={token} />} />
             <Route path="/ats" element={<ResumePage token={token} />} />
             <Route path="/jobs" element={<JobsPage token={token} />} />
             <Route path="/skill-gap" element={<SkillGapPage token={token} />} />

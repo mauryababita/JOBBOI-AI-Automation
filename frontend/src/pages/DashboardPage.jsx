@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Rocket, TrendingUp } from 'lucide-react';
+import { ArrowRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Rocket } from 'lucide-react';
 import { getAnalytics } from '../services/api';
 
 const emptyAnalytics = {
@@ -59,12 +59,7 @@ export default function DashboardPage({ token }) {
       .catch(() => setAnalytics(emptyAnalytics));
   }, [token]);
 
-  const recentApplications = [
-    { title: 'Frontend Developer', company: 'TechNova Solutions', status: 'Applied', color: 'text-emerald-300' },
-    { title: 'AI/ML Engineer', company: 'DataMind Labs', status: 'Under Review', color: 'text-blue-300' },
-    { title: 'Full Stack Developer', company: 'InnovateX', status: 'Interview', color: 'text-fuchsia-300' },
-    { title: 'Backend Developer', company: 'CloudScale', status: 'Rejected', color: 'text-rose-300' },
-  ];
+  const hasActivity = analytics.applications > 0 || analytics.saved_jobs > 0 || analytics.total_jobs_found > 0;
 
   return (
     <div className="space-y-6">
@@ -75,11 +70,15 @@ export default function DashboardPage({ token }) {
         <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-5">
           <p className="text-sm font-semibold text-slate-400">Success Rate</p>
           <p className="mt-3 text-3xl font-black text-white">{analytics.response_rate}%</p>
-          <div className="mt-4 flex h-16 items-end gap-2">
-            {[18, 28, 22, 42, 33, 56].map((height, index) => (
-              <span key={index} className="w-full rounded-t-lg bg-gradient-to-t from-blue-600 to-fuchsia-500" style={{ height }} />
-            ))}
-          </div>
+          {analytics.response_rate > 0 ? (
+            <div className="mt-4 flex h-16 items-end gap-2">
+              {[analytics.response_rate].map((height, index) => (
+                <span key={index} className="w-full rounded-t-lg bg-gradient-to-t from-blue-600 to-fuchsia-500" style={{ height: Math.max(8, height) }} />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500">No response data yet.</p>
+          )}
         </div>
       </div>
 
@@ -110,12 +109,12 @@ export default function DashboardPage({ token }) {
           <div className="flex flex-col items-center">
             <div className="flex h-44 w-44 items-center justify-center rounded-full border-[14px] border-blue-500 bg-slate-950 shadow-[0_0_35px_rgba(59,130,246,0.28)]">
               <div className="text-center">
-                <p className="text-5xl font-black text-white">{analytics.average_match_score || 85}</p>
+                <p className="text-5xl font-black text-white">{analytics.average_match_score || 0}</p>
                 <p className="text-sm font-semibold text-slate-500">/100</p>
               </div>
             </div>
-            <p className="mt-4 font-black text-white">Great foundation</p>
-            <p className="mt-1 text-center text-sm text-slate-400">Run ATS analysis after upload for category recommendations.</p>
+            <p className="mt-4 font-black text-white">{analytics.average_match_score ? 'Resume score available' : 'No resume score yet'}</p>
+            <p className="mt-1 text-center text-sm text-slate-400">Upload and analyze a resume to populate this score.</p>
           </div>
         </Panel>
       </div>
@@ -123,46 +122,36 @@ export default function DashboardPage({ token }) {
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr_360px]">
         <Panel title="Recent Applications" action={<button className="text-sm font-semibold text-fuchsia-300">View all</button>}>
           <div className="space-y-3">
-            {recentApplications.map((item) => (
-              <div key={item.title} className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/60 p-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-800 text-fuchsia-300">
-                    <BriefcaseBusiness size={18} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-white">{item.title}</p>
-                    <p className="text-xs text-slate-500">{item.company}</p>
-                  </div>
-                </div>
-                <span className={`text-xs font-black ${item.color}`}>{item.status}</span>
-              </div>
-            ))}
+            <p className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-500">
+              No applications yet.
+            </p>
           </div>
         </Panel>
 
         <Panel title="Application Analytics">
-          <div className="flex h-64 items-end gap-3">
-            {[24, 38, 30, 44, 52, 68, 46, 58].map((height, index) => (
-              <div key={index} className="flex flex-1 flex-col justify-end gap-1">
-                <span className="rounded-t-lg bg-gradient-to-t from-fuchsia-700 to-fuchsia-400" style={{ height }} />
-                <span className="rounded-t-lg bg-gradient-to-t from-blue-700 to-blue-400" style={{ height: Math.max(10, height - 18) }} />
-              </div>
-            ))}
-          </div>
+          {hasActivity ? (
+            <div className="space-y-3">
+              {analytics.applications_by_status.map((item) => (
+                <div key={item.name} className="rounded-2xl border border-slate-800 bg-slate-900/60 p-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-bold text-slate-200">{item.name}</span>
+                    <span className="font-black text-fuchsia-200">{item.value}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-slate-800 text-sm text-slate-500">
+              No analytics data yet.
+            </div>
+          )}
         </Panel>
 
         <Panel title="Bot Activity">
           <div className="space-y-3 font-mono text-xs">
-            {[
-              '[RESUME] Parser ready',
-              '[JOBS] DEMO adapter online',
-              '[MATCH] Explainable scoring active',
-              '[APPLICATION] Review required',
-            ].map((line) => (
-              <div key={line} className="rounded-xl border border-slate-800 bg-[#080d18] p-3 text-blue-300">
-                {line}
-              </div>
-            ))}
+            <div className="rounded-xl border border-slate-800 bg-[#080d18] p-3 text-slate-500">
+              No automation activity yet.
+            </div>
           </div>
           <div className="mt-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">
             <div className="flex items-center gap-2 font-bold">

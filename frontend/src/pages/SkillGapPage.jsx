@@ -2,11 +2,6 @@ import { useState } from 'react';
 import { CheckCircle2, CircleDashed, XCircle } from 'lucide-react';
 import { analyzeJobDescription } from '../services/api';
 
-const sampleDescription = `Python Backend Engineer
-Required: Python, FastAPI, SQL, PostgreSQL, Docker, AWS, REST API.
-Nice to have: React, Redis, Kubernetes.
-Experience: 2+ years building production APIs.`;
-
 function SkillList({ title, items, icon: Icon, tone }) {
   const toneClass = tone === 'green' ? 'text-emerald-300 bg-emerald-500/10' : tone === 'red' ? 'text-rose-300 bg-rose-500/10' : 'text-amber-300 bg-amber-500/10';
   return (
@@ -27,7 +22,7 @@ function SkillList({ title, items, icon: Icon, tone }) {
 }
 
 export default function SkillGapPage({ token }) {
-  const [jobDescription, setJobDescription] = useState(sampleDescription);
+  const [jobDescription, setJobDescription] = useState('');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -75,10 +70,18 @@ export default function SkillGapPage({ token }) {
 
         <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-5">
           <p className="text-sm font-bold text-slate-500">Match Score</p>
-          <div className="mt-4 flex h-44 w-44 items-center justify-center rounded-full border-[14px] border-blue-500 bg-slate-950 shadow-[0_0_35px_rgba(59,130,246,0.25)]">
-            <span className="text-5xl font-black text-white">{match?.match_score ?? 0}%</span>
-          </div>
-          <p className="mt-4 text-sm leading-6 text-slate-400">{match?.explanation || 'Upload a resume and analyze a job to see a transparent match estimate.'}</p>
+          {match ? (
+            <>
+              <div className="mt-4 flex h-44 w-44 items-center justify-center rounded-full border-[14px] border-blue-500 bg-slate-950 shadow-[0_0_35px_rgba(59,130,246,0.25)]">
+                <span className="text-5xl font-black text-white">{match.match_score}%</span>
+              </div>
+              <p className="mt-4 text-sm leading-6 text-slate-400">{match.explanation}</p>
+            </>
+          ) : (
+            <div className="mt-4 rounded-3xl border border-dashed border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-500">
+              Paste a job description and run analysis to see match score.
+            </div>
+          )}
         </div>
       </div>
 
