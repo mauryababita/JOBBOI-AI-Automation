@@ -85,6 +85,13 @@ export function analyzeResume({ resumeId, token }) {
   });
 }
 
+export function deleteResume({ resumeId, token }) {
+  return apiRequest(`/api/resumes/${resumeId}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
 export function getAnalytics(token) {
   return apiRequest('/api/analytics', { token });
 }
@@ -123,5 +130,30 @@ export function createApplication({ jobId, token }) {
     method: 'POST',
     token,
     body: { job_id: jobId },
+  });
+}
+
+export function listApplications(token) {
+  return apiRequest('/api/applications', { token });
+}
+
+export function startApplication({ applicationId, token }) {
+  return apiRequest(`/api/applications/${applicationId}/start`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function reviewApplication({ applicationId, token }) {
+  return apiRequest(`/api/applications/${applicationId}/review`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function submitApplication({ applicationId, token }) {
+  return apiRequest(`/api/applications/${applicationId}/submit`, {
+    method: 'POST',
+    token,
   });
 }

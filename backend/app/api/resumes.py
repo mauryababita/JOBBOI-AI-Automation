@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
@@ -5,6 +7,7 @@ from app.api.auth import get_current_user
 from app.config import get_settings
 from app.database import get_db
 from app.models.resume import Resume
+from app.models.resume_version import ResumeVersion
 from app.models.user import User
 from app.services.ats_engine import ats_score_service
 from app.services.resume_parser import resume_parser_service
@@ -66,3 +69,23 @@ def get_resume(resume_id: int, db: Session = Depends(get_db), user: User = Depen
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
     return {"success": True, "data": {"resume": serialize_resume(resume)}, "message": "Resume found"}
+
+
+@router.delete("/{resume_id}")
+def delete_resume(resume_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    resume = db.query(Resume).filter(Resume.id == resume_id, Resume.user_id == user.id).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    file_path = resume.file_path
+    db.query(ResumeVersion).filter(ResumeVersion.resume_id == resume.id).delete()
+    db.delete(resume)
+    db.commit()
+
+    if file_path:
+        try:
+            Path(file_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    return {"success": True, "data": {"deleted": True, "resume_id": resume_id}, "message": "Resume deleted"}

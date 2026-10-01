@@ -54,11 +54,11 @@ def parse_posted_at(value):
 
 @router.post("/search")
 def search_jobs(query: str, location: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    jobs = demo_job_source.search_jobs(query=query or "python developer", location=location)
-    normalized = [demo_job_source.normalize_job(job) for job in jobs]
-    persisted = []
     resume = latest_resume(db, user.id)
     candidate_profile = resume.parsed_data if resume and resume.parsed_data else {}
+    jobs = select_jobs_for_search(query=query or "", location=location, candidate_profile=candidate_profile)
+    normalized = [demo_job_source.normalize_job(job) for job in jobs]
+    persisted = []
     for item in normalized:
         item["posted_at"] = parse_posted_at(item.get("posted_at"))
         existing = db.query(Job).filter(Job.source == item["source"], Job.external_id == item["external_id"]).first()
@@ -69,13 +69,38 @@ def search_jobs(query: str, location: str | None = None, db: Session = Depends(g
             db.refresh(db_job)
             persisted.append(db_job)
         else:
+            for key, value in item.items():
+                setattr(existing, key, value)
+            db.commit()
+            db.refresh(existing)
             persisted.append(existing)
 
     response_jobs = []
     for job in persisted:
         match = job_matcher_service.analyze_match(candidate_profile, job.description or "") if candidate_profile else None
         response_jobs.append(serialize_job(job, match))
+    response_jobs.sort(key=lambda item: item.get("match_score", 0), reverse=True)
     return {"success": True, "data": {"jobs": response_jobs}, "message": "Jobs retrieved"}
+
+
+def select_jobs_for_search(query: str, location: str | None, candidate_profile: dict) -> list[dict]:
+    query_jobs = demo_job_source.search_jobs(query=query or "", location=location)
+    if not candidate_profile:
+        return query_jobs
+
+    all_jobs = demo_job_source.search_jobs(query="", location=location)
+    related_jobs = []
+    for job in all_jobs:
+        match = job_matcher_service.analyze_match(candidate_profile, job.get("description") or "")
+        matched_count = len(match.get("matched_skills") or [])
+        partial_count = len(match.get("partial_skills") or [])
+        if matched_count > 0 or partial_count > 0:
+            related_jobs.append((match.get("match_score", 0), job))
+
+    if related_jobs:
+        return [job for _, job in sorted(related_jobs, key=lambda item: item[0], reverse=True)]
+
+    return query_jobs or all_jobs
 
 
 @router.get("")

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Bookmark, ExternalLink, FileText, Globe2, Search, Send, Sparkles, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Bookmark, ClipboardList, ExternalLink, FileText, Globe2, Search, Send, Sparkles, X } from 'lucide-react';
 import { createApplication, generateCoverLetter, matchJob, saveJob, searchJobs } from '../services/api';
 
 const filterOptions = {
@@ -10,11 +10,13 @@ const filterOptions = {
   posted: ['Any time', 'Today', '3 days', '7 days', '15 days', '30 days'],
 };
 
+const allPlatforms = filterOptions.platform;
+
 const initialFilters = {
   experience: 'Any',
   jobType: 'Any',
   workplace: 'Any',
-  platform: ['Naukri'],
+  platform: allPlatforms,
   posted: 'Any time',
 };
 
@@ -22,6 +24,11 @@ const demoPlatformByExternalId = {
   'demo-100': 'Naukri',
   'demo-101': 'LinkedIn',
   'demo-102': 'Indeed',
+  'demo-103': 'Glassdoor',
+  'demo-104': 'TimesJobs',
+  'demo-105': 'Shine.com',
+  'demo-106': 'Foundit',
+  'demo-107': 'Internshala',
 };
 
 const platformSearchUrl = {
@@ -98,7 +105,8 @@ function matchesWorkplace(job, selected) {
 }
 
 function matchesPlatform(job, selectedPlatforms) {
-  if (!selectedPlatforms.length) return false;
+  if (!selectedPlatforms.length) return true;
+  if (selectedPlatforms.length === allPlatforms.length) return true;
   const platform = jobPlatform(job).toLowerCase().replace('.com', '');
   return selectedPlatforms.some((selected) => platform.includes(selected.toLowerCase().replace('.com', '')));
 }
@@ -110,12 +118,74 @@ function jobPlatform(job) {
   return job.source || 'Unknown';
 }
 
+function jobOpenUrl(job) {
+  const url = job?.url || '';
+  if (url && !url.includes('example.com')) {
+    return url;
+  }
+  const platform = jobPlatform(job);
+  const buildUrl = platformSearchUrl[platform] || platformSearchUrl.LinkedIn;
+  return buildUrl(job?.title || 'developer', job?.location || 'India');
+}
+
 function jobMatchesFilters(job, filters) {
   return (
     matchesExperience(job, filters.experience)
     && matchesJobType(job, filters.jobType)
     && matchesWorkplace(job, filters.workplace)
     && matchesPlatform(job, filters.platform)
+  );
+}
+
+function getJobRequirements(job) {
+  const items = [
+    job.experience_required && `Experience: ${job.experience_required}`,
+    job.employment_type && `Job type: ${job.employment_type}`,
+    job.location && `Location: ${job.location}`,
+    job.salary && `Salary: ${job.salary}`,
+  ].filter(Boolean);
+
+  const description = String(job.description || '');
+  const explicitRequirement = description.match(/requirements?\s*:\s*(.+)$/i);
+  const skills = [
+    ...(job.matched_skills || []),
+    ...(job.partial_skills || []),
+    ...(job.missing_skills || []),
+  ];
+
+  if (explicitRequirement) {
+    explicitRequirement[1]
+      .split(/,|\band\b/i)
+      .map((item) => item.replace(/\.$/, '').trim())
+      .filter(Boolean)
+      .forEach((item) => items.push(item));
+  } else if (skills.length) {
+    skills.forEach((skill) => items.push(`Skill: ${skill}`));
+  } else if (description) {
+    items.push(description);
+  }
+
+  return [...new Set(items)].slice(0, 12);
+}
+
+function RequirementsList({ job }) {
+  const requirements = getJobRequirements(job);
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <ClipboardList className="text-fuchsia-300" size={18} />
+        <p className="text-sm font-black uppercase tracking-[0.16em] text-fuchsia-200">Requirements</p>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {requirements.length === 0 ? (
+          <p className="text-sm text-slate-500">Requirements are not available for this job.</p>
+        ) : requirements.map((item) => (
+          <div key={item} className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-sm font-semibold text-slate-200">
+            {item}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -140,8 +210,8 @@ function JobModal({ job, onClose, onMatch, onCoverLetter, onSave, onApplyDraft }
             {job.match_score ?? 0}%
           </button>
           <span className="rounded-lg bg-blue-500/15 px-3 py-2 text-sm font-black text-blue-200">Overall match</span>
-          {job.url && (
-            <a href={job.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-800">
+          {job.title && (
+            <a href={jobOpenUrl(job)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-800">
               <ExternalLink size={15} />
               View Job
             </a>
@@ -151,6 +221,10 @@ function JobModal({ job, onClose, onMatch, onCoverLetter, onSave, onApplyDraft }
         <button type="button" onClick={() => onMatch(job)} className="mt-4 w-full rounded-2xl bg-slate-950 p-4 text-left text-sm leading-6 text-slate-300 hover:bg-slate-950/70">
           {job.explanation || 'Click Skill Fit to run explainable matching for this role.'}
         </button>
+
+        <div className="mt-5">
+          <RequirementsList job={job} />
+        </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <div>
@@ -179,6 +253,9 @@ function JobModal({ job, onClose, onMatch, onCoverLetter, onSave, onApplyDraft }
           <button type="button" onClick={() => onMatch(job)} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white hover:bg-blue-500">
             <Sparkles size={16} /> Skill Fit
           </button>
+          <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-2 text-sm font-bold text-fuchsia-200">
+            <ClipboardList size={16} /> Requirements
+          </button>
           <button type="button" onClick={() => onCoverLetter(job.id)} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-800">
             <FileText size={16} /> Cover Letter
           </button>
@@ -198,22 +275,32 @@ export default function JobsPage({ token }) {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [query, setQuery] = useState('Developer');
-  const [location, setLocation] = useState('Pune');
+  const [query, setQuery] = useState('');
+  const [location, setLocation] = useState('');
   const [filters, setFilters] = useState(initialFilters);
   const [activeLetter, setActiveLetter] = useState('');
   const [activeJob, setActiveJob] = useState(null);
   const [notice, setNotice] = useState('');
-  const [activityLog, setActivityLog] = useState([
-    'Bot ready',
-    'Select a platform to show matching jobs',
-    'Manual review required before applying',
-  ]);
+  const [searchedPlatforms, setSearchedPlatforms] = useState([]);
+  const [activityLog, setActivityLog] = useState([]);
 
   const filteredJobs = useMemo(
-    () => jobs.filter((job) => jobMatchesFilters(job, filters)),
+    () => jobs
+      .filter((job) => jobMatchesFilters(job, filters))
+      .sort((a, b) => Number(b.match_score || 0) - Number(a.match_score || 0)),
     [jobs, filters],
   );
+
+  const platformCounts = useMemo(() => (
+    jobs.reduce((counts, job) => {
+      const platform = jobPlatform(job);
+      return { ...counts, [platform]: (counts[platform] || 0) + 1 };
+    }, {})
+  ), [jobs]);
+
+  const activePlatformLabel = filters.platform.length === allPlatforms.length
+    ? 'All Platforms'
+    : filters.platform[0] || 'All Platforms';
 
   const showNotice = (message) => {
     setNotice(message);
@@ -226,21 +313,25 @@ export default function JobsPage({ token }) {
     if (!token) return;
     setLoading(true);
     setError('');
-    showNotice('Scraping started');
+    setFilters((current) => ({ ...current, platform: allPlatforms }));
+    setSearchedPlatforms([]);
+    setActivityLog([
+      `${new Date().toLocaleTimeString()} Auto platform search started`,
+      ...allPlatforms.map((platform) => `${new Date().toLocaleTimeString()} Searching ${platform}`),
+      'Resume match ranking enabled',
+    ]);
+    showNotice('Auto searching all platforms');
     try {
       const result = await searchJobs({ query, location, token });
       setJobs(result.data.jobs || []);
-      showNotice(`Found ${result.data.jobs?.length || 0} jobs`);
+      setSearchedPlatforms(allPlatforms);
+      showNotice(`Listed ${result.data.jobs?.length || 0} resume-related jobs from platforms`);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    runSearch();
-  }, [token]);
 
   const setSingleFilter = (key, value) => {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -249,8 +340,24 @@ export default function JobsPage({ token }) {
 
   const handlePlatformClick = (platform) => {
     setFilters((current) => ({ ...current, platform: [platform] }));
-    showNotice(`Showing ${platform} jobs`);
+    const count = platformCounts[platform] || 0;
+    const buildUrl = platformSearchUrl[platform];
+    if (buildUrl) {
+      window.open(buildUrl(searchQueryForPlatform(platform), location || 'India'), '_blank', 'noopener,noreferrer');
+      showNotice(`Searching ${platform} automatically (${count} listed)`);
+      return;
+    }
+    showNotice(`Showing only ${platform} jobs (${count})`);
   };
+
+  const showAllPlatforms = () => {
+    setFilters((current) => ({ ...current, platform: allPlatforms }));
+    showNotice('Showing all resume-matched jobs from every platform');
+  };
+
+  const listedCountForPlatform = (platform) => (
+    jobs.filter((job) => jobPlatform(job) === platform).length
+  );
 
   const updateJob = (jobId, patch) => {
     setJobs((current) => current.map((job) => (job.id === jobId ? { ...job, ...patch } : job)));
@@ -300,7 +407,7 @@ export default function JobsPage({ token }) {
       showNotice(`${platform} search URL is not configured`);
       return;
     }
-    const url = buildUrl(query || 'developer', location || 'India');
+    const url = buildUrl(searchQueryForPlatform(platform), location || 'India');
     window.open(url, '_blank', 'noopener,noreferrer');
     showNotice(`Opening ${platform} live search`);
   };
@@ -309,20 +416,23 @@ export default function JobsPage({ token }) {
     filterOptions.platform.forEach((platform) => {
       const buildUrl = platformSearchUrl[platform];
       if (buildUrl) {
-        window.open(buildUrl(query || 'developer', location || 'India'), '_blank', 'noopener,noreferrer');
+        window.open(buildUrl(searchQueryForPlatform(platform), location || 'India'), '_blank', 'noopener,noreferrer');
       }
     });
     setFilters((current) => ({ ...current, platform: [...filterOptions.platform] }));
-    showNotice('Opening all 8 live platforms');
+    showNotice('Searching all 8 live platforms automatically');
+  };
+
+  const searchQueryForPlatform = (platform) => {
+    const platformJob = filteredJobs.find((job) => jobPlatform(job) === platform)
+      || jobs.find((job) => jobPlatform(job) === platform);
+    return platformJob?.title || query || 'developer';
   };
 
   const openApplyReview = (job) => {
-    const platform = filters.platform[0] || 'LinkedIn';
-    const url = job.url && !job.url.includes('example.com')
-      ? job.url
-      : platformSearchUrl[platform](job.title || query, job.location || location || 'India');
+    const url = jobOpenUrl(job);
     window.open(url, '_blank', 'noopener,noreferrer');
-    showNotice(`Opening ${platform} for manual apply review`);
+    showNotice(`Opening ${jobPlatform(job)} for manual apply review`);
   };
 
   return (
@@ -332,23 +442,36 @@ export default function JobsPage({ token }) {
         <div className="mt-5 space-y-5">
           <label className="block">
             <span className="text-sm font-bold text-slate-400">Job Role / Title</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch()} className="mt-2 w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm font-semibold text-white outline-none focus:border-fuchsia-500" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch()} placeholder="e.g. Python Developer" className="mt-2 w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm font-semibold text-white outline-none focus:border-fuchsia-500" />
           </label>
           <label className="block">
             <span className="text-sm font-bold text-slate-400">Location</span>
-            <input value={location} onChange={(event) => setLocation(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch()} className="mt-2 w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm font-semibold text-white outline-none focus:border-fuchsia-500" />
+            <input value={location} onChange={(event) => setLocation(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch()} placeholder="e.g. Pune" className="mt-2 w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm font-semibold text-white outline-none focus:border-fuchsia-500" />
           </label>
 
           {Object.entries(filterOptions).map(([key, values]) => (
             <div key={key}>
               <p className="mb-2 text-sm font-bold capitalize text-slate-400">
-                {key === 'posted' ? 'Posted Within' : key === 'platform' ? 'Platforms - click to filter jobs' : key}
+                {key === 'posted' ? 'Posted Within' : key === 'platform' ? `Platforms - click opens live search` : key}
               </p>
+              {key === 'platform' && (
+                <button
+                  type="button"
+                  onClick={showAllPlatforms}
+                  className={`mb-2 rounded-full border px-3 py-1.5 text-xs font-black transition ${
+                    filters.platform.length === allPlatforms.length
+                      ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-200'
+                      : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  All Platforms
+                </button>
+              )}
               <div className="flex flex-wrap gap-2">
                 {values.map((item) => (
                   <FilterChip
                     key={item}
-                    label={item}
+                    label={`${item}${platformCounts[item] ? ` (${platformCounts[item]})` : ''}`}
                     active={key === 'platform' ? filters.platform.includes(item) : filters[key] === item}
                     onClick={() => (key === 'platform' ? handlePlatformClick(item) : setSingleFilter(key, item))}
                   />
@@ -364,10 +487,10 @@ export default function JobsPage({ token }) {
 
           <button type="button" onClick={runSearch} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-fuchsia-600 to-pink-500 px-4 py-3 text-sm font-black text-white shadow-[0_0_30px_rgba(236,72,153,0.26)] disabled:opacity-60">
             <Search size={17} />
-            {loading ? 'Searching...' : 'Start Scraping'}
+            {loading ? 'Searching Platforms...' : 'Auto Search Platforms'}
           </button>
           <button type="button" onClick={openAllPlatforms} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm font-black text-blue-200 hover:bg-blue-500/15">
-            Open All 8 Platforms
+            Auto Search All 8 Platforms
           </button>
 
           <div className="rounded-2xl border border-slate-800 bg-[#070b15] p-3">
@@ -376,7 +499,9 @@ export default function JobsPage({ token }) {
               Browser Activity
             </div>
             <div className="space-y-2 font-mono text-[11px]">
-              {activityLog.map((line, index) => (
+              {activityLog.length === 0 ? (
+                <p className="rounded-lg bg-slate-950 px-2 py-2 text-slate-500">No search activity yet.</p>
+              ) : activityLog.map((line, index) => (
                 <button key={`${line}-${index}`} type="button" onClick={() => showNotice(line)} className="block w-full rounded-lg bg-slate-950 px-2 py-2 text-left text-blue-300 hover:bg-slate-900">
                   {line}
                 </button>
@@ -390,16 +515,45 @@ export default function JobsPage({ token }) {
         <div className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-950/70 p-5 md:flex-row md:items-center md:justify-between">
           <button type="button" onClick={runSearch} className="text-left">
             <h1 className="text-2xl font-black text-white hover:text-fuchsia-200">Search Jobs</h1>
-            <p className="text-sm text-slate-400">Scrape permitted sources and score listings against your resume.</p>
+            <p className="text-sm text-slate-400">All available jobs are scored against your resume and sorted by match.</p>
           </button>
           <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={() => showNotice(`${filteredJobs.length} recommended from ${jobs.length} found`)} className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-sm font-bold text-emerald-300 hover:bg-emerald-500/15">Recommended {filteredJobs.length}/{jobs.length}</button>
+            <button type="button" onClick={() => showNotice(`Active platform: ${activePlatformLabel}`)} className="rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-sm font-bold text-blue-200 hover:bg-blue-500/15">{activePlatformLabel}</button>
+            <button type="button" onClick={() => showNotice(`${filteredJobs.length} jobs listed from ${jobs.length} found`)} className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-sm font-bold text-emerald-300 hover:bg-emerald-500/15">Listed {filteredJobs.length}/{jobs.length}</button>
             <button type="button" onClick={stopSearch} className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-2 text-sm font-bold text-rose-300 hover:bg-rose-500/15">Stop</button>
           </div>
         </div>
 
         {notice && <button type="button" onClick={() => setNotice('')} className="w-full rounded-2xl border border-fuchsia-500/30 bg-fuchsia-500/10 p-3 text-left text-sm font-bold text-fuchsia-100">{notice}</button>}
         {error && <button type="button" onClick={() => setError('')} className="w-full rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-left text-sm text-rose-200">{error}</button>}
+
+        {(searchedPlatforms.length > 0 || jobs.length > 0) && (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {allPlatforms.map((platform) => {
+              const searched = searchedPlatforms.includes(platform) || jobs.length > 0;
+              const count = listedCountForPlatform(platform);
+              return (
+                <button
+                  key={platform}
+                  type="button"
+                  onClick={() => handlePlatformClick(platform)}
+                  className={`rounded-2xl border p-3 text-left transition ${
+                    filters.platform.length === 1 && filters.platform[0] === platform
+                      ? 'border-fuchsia-500/50 bg-fuchsia-500/15'
+                      : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-black text-white">{platform}</p>
+                    <span className={`h-2.5 w-2.5 rounded-full ${searched ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                  </div>
+                  <p className="mt-2 text-xs font-bold text-slate-500">{searched ? 'Searched' : 'Waiting'}</p>
+                  <p className="mt-1 text-lg font-black text-fuchsia-200">{count} jobs</p>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div className="space-y-4">
           {jobs.length === 0 ? (
@@ -437,6 +591,9 @@ export default function JobsPage({ token }) {
                 <button type="button" onClick={() => handleMatch(job)} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white hover:bg-blue-500">
                   <Sparkles size={16} /> Skill Fit
                 </button>
+                <button type="button" onClick={() => setActiveJob(job)} className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-2 text-sm font-bold text-fuchsia-200 hover:bg-fuchsia-500/15">
+                  <ClipboardList size={16} /> Requirements
+                </button>
                 <button type="button" onClick={() => handleCoverLetter(job.id)} className="inline-flex items-center gap-2 rounded-xl border border-slate-800 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-900">
                   <FileText size={16} /> Cover Letter
                 </button>
@@ -446,8 +603,8 @@ export default function JobsPage({ token }) {
                 <button type="button" onClick={() => handleApplyDraft(job)} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 px-3 py-2 text-sm font-black text-white">
                   <Send size={16} /> {job.application_status || 'Apply Draft'}
                 </button>
-                {job.url && (
-                  <a href={job.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-slate-800 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-900">
+                {job.title && (
+                  <a href={jobOpenUrl(job)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-slate-800 px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-900">
                     <ExternalLink size={16} /> View Job
                   </a>
                 )}
